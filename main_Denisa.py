@@ -1,154 +1,142 @@
 import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
-import simulations_dataset as ds
+import simulations_dataset
 import scatter_plot
 import numpy as np
 import superlets as slt
 import sklearn
 from constants import LABEL_COLOR_MAP
 import main_spectrum as ms
+import neuralNetwork
 
 
-def superlet(simNr, ord, ncyc, dimension):
-    spikes, labels = ds.get_dataset_simulation(simNr=simNr, align_to_peak=False)
-    # def slt(spikes, ord, ncyc, derivatives=True)
+def pipeline_superlet(simNr, ord, ncyc, no_of_components):
+    spikes, labels = simulations_dataset.get_dataset_simulation(simNr=simNr, align_to_peak=False)
+
     slt_features = slt.slt(spikes, ord, ncyc)
+    features_after_pca = apply_dim_reduction(slt_features, no_of_components)
+    compute_metrics_scores(slt_features, labels)
 
-    # scaler = StandardScaler()
-    # features = scaler.fit_transform(spikes)
-    # pca = PCA(n_components=dimension)
-    # features_after_pca = pca.fit_transform(features)
-    # scatter_plot.plot('spikes',
-    #                   features_after_pca, labels, marker='o')
-    # plt.show()
+    plot_path = f'./figures/' + str(simNr) + '/'
+    filename = 'sim_' + str(simNr) + '_ord' + str(ord) + '_ncyc' + str(ncyc) + 'in'+ str(no_of_components) + 'D'
 
-    scaler = StandardScaler()
-    features = scaler.fit_transform(slt_features)
-    pca = PCA(n_components=dimension)
-
-    features_after_pca = pca.fit_transform(features)
-
-    scatter_plot.plot('Sim_' + str(simNr) + '_ord' + str(ord) + '_ncyc' + str(ncyc) + 'in' + str(dimension) + 'D',
-                      features_after_pca, labels, marker='o')
+    scatter_plot.plot(filename, features_after_pca, labels, marker='o')
+    plt.savefig(plot_path + filename + ".png")
     plt.show()
 
+    neuralNetwork.apply_neural_network(slt_features, simNr, ord, ncyc)
 
-def average_spike_per_cluster(simNr):
-    spikes, labels = ds.get_dataset_simulation(simNr=simNr, align_to_peak=False)
 
-    for unique_label in np.unique(labels):
-        selected_spikes = spikes[labels == unique_label]
-        average_spike = np.mean(selected_spikes, axis=0)
-        plt.plot(range(len(average_spike)), average_spike, color=LABEL_COLOR_MAP[unique_label],
-                 label='cluster {unique_label}'.format(unique_label=unique_label))
-
+def show_average_spike_per_cluster(simNr, spike, unique_label):
+    plt.figure()
     ax = plt.axes()
     ax.set_facecolor("gray")
-    plt.title("Average spike for simulation " + str(simNr))
+    plt.title("Average spike for cluster " + str(unique_label) + "in simulation" + str(simNr))
+
+    plt.plot(range(len(spike)), spike, color=LABEL_COLOR_MAP[unique_label],
+             label='cluster {unique_label}'.format(unique_label=unique_label))
+
     plt.legend(loc='best')
     plt.show()
 
 
-def plot_data_with_score(simulation, n_components, ord, ncyc):
-    spikes, labels = ds.get_dataset_simulation(simNr=simulation, align_to_peak=False)
-    # def slt(spikes, ord, ncyc, derivatives=True)
-    slt_features = slt.slt(spikes, ord, ncyc)
-    clusters = max(labels)
-    scaler = StandardScaler()
-    features = scaler.fit_transform(slt_features)
-    pca = PCA(n_components=n_components)
-    features_pca = pca.fit_transform(features)
-    scatter_plot.plot("Sim_%d (%d clusters)_%dD" % (simulation, clusters, n_components), features_pca, labels,
-                      marker='o')
+def average_spike_per_cluster(simNr, onePlot=True):
+    spikes, labels = simulations_dataset.get_dataset_simulation(simNr=simNr)
+
+    if onePlot:
+        plt.figure()
+        ax = plt.axes()
+        ax.set_facecolor("gray")
+        plt.title("Average spikes for simulation " + str(simNr))
+
+    for unique_label in np.unique(labels):
+        selected_spikes = spikes[labels == unique_label]
+        average_spike = np.mean(selected_spikes, axis=0)
+        if onePlot:
+            plt.plot(range(len(average_spike)), average_spike, color=LABEL_COLOR_MAP[unique_label],
+                     label='cluster {unique_label}'.format(unique_label=unique_label))
+        else:
+            show_average_spike_per_cluster(simNr, average_spike, unique_label)
+
+    if onePlot:
+        plt.legend(loc='best')
+        plt.show()
+
+
+def compute_metrics_scores(slt_features, labels):
+    db_score = sklearn.metrics.davies_bouldin_score(slt_features, labels)
+    ch_score = sklearn.metrics.calinski_harabasz_score(slt_features, labels)
+    s_score = sklearn.metrics.silhouette_score(slt_features, labels)
+    print("Score Davies-Bouldin: ", db_score)
+    print("Score Calinsky-Harabasz: ", ch_score)
+    print("Score Silhouette: ", s_score)
+
+
+def spectrum_with_superlet(simNr, spikes, label, ord, ncyc, normalized):
+    ampl_min = 0
+    ampl_max = 0
+    if normalized:
+        ampl_min, ampl_max = find_min_max(spikes, ord, ord, ncyc, False)
+
+    results = []
+
+    for spike in spikes:
+        result = slt.slt_1spike_without_plot(spike, ord, ncyc, 1, 200)
+        results.append(result)
+
+    average_result = np.mean(results, axis=0)
+
+    scales_freq = np.arange(1, 200)
+    df = scales_freq[-1] / scales_freq[-2]
+    ymesh = np.concatenate([scales_freq, [scales_freq[-1] * df]])
+    im = plt.pcolormesh(np.arange(79), ymesh, average_result, cmap="jet")
+    plt.colorbar(im)
+
+    if normalized:
+        plot_path = f'./figures/' + str(simNr) + '/normalized/'
+        plt.clim(ampl_min, ampl_max)
+    else:
+        plot_path = f'./figures/' + str(simNr)
+    filename = "cluster_" + str(label) + "_ord" + str(ord) + "_ncyc" + str(ncyc) + "_superlet"
+
+    plt.title(filename)
+    plt.xlabel("Time")
+    plt.ylabel("Frequency")
+    plt.savefig(plot_path + filename + ".png")
     plt.show()
-    score_davies1 = sklearn.metrics.davies_bouldin_score(slt_features, labels)
-    score_calinski = sklearn.metrics.calinski_harabasz_score(slt_features, labels)
-    score_silhouette = sklearn.metrics.silhouette_score(slt_features, labels)
-    print("Score Davies-Bouldin: ", score_davies1)
-    print("Score Calinsky-Harabasz: ", score_calinski)
-    print("Score Silhouette: ", score_silhouette)
 
 
-# def spectrum_help(simNr, spikes, label, ord, ncyc, freq_start, freq_end):
-#     results = []
-#
-#     for spike in spikes:
-#         result = slt.slt_1spike_without_plot(spike, ord, ncyc, freq_start, freq_end)
-#         results.append(result)
-#
-#     average_result = np.mean(results, axis=0)
-#     # magnitude = ms.fourier_power(average_result)
-#
-#     plot_path = f'./figures/' + str(simNr) + '/'
-#     values = np.abs(average_result)
-#     scales_freq = np.arange(freq_start, freq_end)
-#     df = scales_freq[-1] / scales_freq[-2]
-#     ymesh = np.concatenate([scales_freq, [scales_freq[-1] * df]])
-#     im = plt.pcolormesh(np.arange(79), ymesh, values, cmap="jet")
-#     plt.colorbar(im)
-#     plt.title("cluster_" + str(label) + "_ord" + str(ord) + "_ncyc" + str(ncyc) + "_superlets")
-#     plt.xlabel("Time")
-#     plt.ylabel("Frequency - linear")
-#     plt.savefig(plot_path + "cluster_" + str(label) + "_ord" + str(ord) + "_ncyc" +  str(ncyc) + "_superlets.png")
-#     plt.show()
-
-def find_min_max(spikes, ord_min, ord_max, ncyc):
+def find_min_max(spikes, ord_min, ord_max, ncyc, adaptive):
     results = []
     for spike in spikes:
-        result = faslt_per_spike(spike, ord_min, ord_max, ncyc)
+        if adaptive:
+            result = faslt_per_spike(spike, ord_min, ord_max, ncyc)
+        else:
+            result = slt.slt_1spike_without_plot(spike, ord_min, ncyc, 1, 200)
         results.append((np.ndarray.flatten(np.array(result))))
 
     return np.min(results), np.max(results)
 
 
 def spectrum(simNr, ord_min, ord_max, ncyc, normalized, adaptive=False):
-    spikes, labels = ds.get_dataset_simulation(simNr=simNr, align_to_peak=False)
-
-    ampl_min = 0
-    ampl_max = 0
-    if normalized:
-        ampl_min, ampl_max = find_min_max(spikes, ord_min, ord_max, ncyc)
+    spikes, labels = simulations_dataset.get_dataset_simulation(simNr=simNr, align_to_peak=False)
 
     for unique_label in np.unique(labels):
         selected_spikes = spikes[labels == unique_label]
         if adaptive:
-            spectrum_with_faslt(simNr, selected_spikes, unique_label, ord_min, ord_max, ncyc,
-                                ampl_min, ampl_max, normalized)
+            spectrum_with_faslt(simNr, selected_spikes, unique_label, ord_min, ord_max, ncyc, normalized)
         else:
-            spectrum_help(simNr, selected_spikes, unique_label, ord_min, ord_max, ncyc)
-
-
-def spectrum_help(simNr, spikes, label, ord_min, ord_max, ncyc):
-    results = slt.slt_spectrum(spikes, ord_min, ord_max, ncyc)
-    values = np.abs(results)
-
-    scales_freq = np.arange(len(results) - 1)
-    print(scales_freq)
-
-    plot_path = f'./figures/' + str(simNr) + '/simple'
-    df = scales_freq[-1] / scales_freq[-2]
-    ymesh = np.concatenate([scales_freq, [scales_freq[-1] * df]])
-    im = plt.pcolormesh(np.arange(79), ymesh, values, cmap="jet")
-    plt.colorbar(im)
-    plt.title("cluster" + str(label) + "_superlets_ord[" + str(ord_min) + "," + str(ord_max) + "]_ncyc" + str(ncyc))
-    plt.xlabel("Time")
-    plt.ylabel("Frequency")
-    plt.savefig(
-        plot_path + "cluster" + str(label) + "_superlets_ord[" + str(ord_min) + "," + str(ord_max) + "]_ncyc" + str(
-            ncyc) + ".png")
-    plt.show()
+            spectrum_with_superlet(simNr, selected_spikes, unique_label, ord_min, ncyc, normalized)
 
 
 def faslt_per_spike(spike, order_min, order_max, ncyc):
-    fs = 1000  # sampling frequency
-    # frequencies of interest in Hz
     foi = np.linspace(1, 250)
     scales = ms.scale_from_period(1 / foi)
 
     spec = ms.superlet(
         spike,
-        samplerate=fs,
+        samplerate=1000,
         scales=scales,
         order_max=order_max,
         order_min=order_min,
@@ -159,9 +147,14 @@ def faslt_per_spike(spike, order_min, order_max, ncyc):
     return np.abs(spec)
 
 
-def spectrum_with_faslt(simNr, spikes, label, order_min, order_max, ncyc, ampl_min, ampl_max, normalized):
+def spectrum_with_faslt(simNr, spikes, label, order_min, order_max, ncyc, normalized):
     # frequencies of interest in Hz
     foi = np.linspace(1, 250)
+
+    ampl_min = 0
+    ampl_max = 0
+    if normalized:
+        ampl_min, ampl_max = find_min_max(spikes, order_min, order_max, ncyc, True)
 
     results = []
     for spike in spikes:
@@ -189,43 +182,58 @@ def spectrum_with_faslt(simNr, spikes, label, order_min, order_max, ncyc, ampl_m
     plt.show()
 
 
-def faslt_scores(simNr, ord_min, ord_max, ncyc, no_of_components):
-    plot_path = f'./figures/' + str(simNr) + '/'
-    spikes, labels = ds.get_dataset_simulation(simNr=simNr, align_to_peak=False)
+def pipeline_faslt(simNr, ord_min, ord_max, ncyc, no_of_components):
+    spikes, labels = simulations_dataset.get_dataset_simulation(simNr=simNr, align_to_peak=False)
 
     results = []
     for spike in spikes:
         result = faslt_per_spike(spike, ord_min, ord_max, ncyc)
         results.append((np.ndarray.flatten(np.array(result))))
 
-    scaler = StandardScaler()
-    features = scaler.fit_transform(results)
-    pca = PCA(n_components=no_of_components)
-    features_pca = pca.fit_transform(features)
+    features_pca = apply_dim_reduction(results, no_of_components)
 
-    file_name = "Sim_" + str(simNr) + "_ord[" + str(ord_min) + "," + str(ord_max) + \
+    file_name = "sim_" + str(simNr) + "_ord[" + str(ord_min) + "," + str(ord_max) + \
                 "]_ncyc" + str(ncyc) + "_FASLT_" + str(no_of_components) + "D"
+    plot_path = f'./figures/' + str(simNr) + '/'
 
     scatter_plot.plot(file_name, features_pca, labels, marker='o')
 
     plt.savefig(plot_path + file_name + ".png")
     plt.show()
 
-    score_davies = sklearn.metrics.davies_bouldin_score(results, labels)
-    score_calinski = sklearn.metrics.calinski_harabasz_score(results, labels)
-    score_silhouette = sklearn.metrics.silhouette_score(results, labels)
-    print("Score Davies-Bouldin: ", score_davies)
-    print("Score Calinsky-Harabasz: ", score_calinski)
-    print("Score Silhouette: ", score_silhouette)
+    compute_metrics_scores(results, labels)
+
+
+def apply_dim_reduction(results, no_of_components):
+    scaler = StandardScaler()
+    features = scaler.fit_transform(results)
+    pca = PCA(n_components=no_of_components)
+
+    return pca.fit_transform(features)
+
+
+def data_per_cluster(simNr):
+    spikes, labels = simulations_dataset.get_dataset_simulation(simNr=simNr)
+
+    results = []
+    for unique_label in np.unique(labels):
+        result = (labels == unique_label).sum()
+        results.append(result)
+
+    plt.bar(np.unique(labels), results)
+    plt.title('Features per Cluster in Sim' + str(simNr))
+    plt.ylabel('Features')
+    plt.xlabel('Clusters')
+    plt.show()
 
 
 def main():
-    # average_spike_per_cluster(4)
-    superlet(8, 3, 1.5, 2)
-    # superlet_feature_extraction(4, 2, 1.5)
-    # plot_data_with_score(64, 3, 2, 1.5)
-    # spectrum(simNr=64, ord_min=1, ord_max=5, ncyc=1.5, normalized=True, adaptive=True)
-    # faslt_scores(simNr=64, ord_min=1, ord_max=1, ncyc=3, no_of_components=2)
+    # average_spike_per_cluster(simNr=33, onePlot=False)
+    data_per_cluster(simNr=84)
+    # pipeline_superlet(simNr=8, ord=2, ncyc=2.5, no_of_components=2)
+    # spectrum(simNr=4, ord_min=2, ord_max=2, ncyc=1.5, normalized=False, adaptive=False)
+    #  pipeline_faslt(simNr=84, ord_min=1.5, ord_max=3, ncyc=3, no_of_components=2)
+    #  neuralNetwork.apply_neural_network(simNr=33, ord=2, ncyc=1.5)
 
 
 main()

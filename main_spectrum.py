@@ -1,12 +1,5 @@
 import matplotlib.pyplot as plt
-import sklearn
-from numpy.fft import fft
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
 import simulations_dataset as ds
-import scatter_plot
-import superlets as slt
-import matplotlib.pyplot as ppl
 import numpy as np
 from scipy.signal import fftconvolve
 from constants import LABEL_COLOR_MAP
@@ -359,137 +352,48 @@ def gen_superlet_testdata(freqs=None, cycles=11, fs=1000, eps=0):
     return signal
 
 
-def plot_ground_truth_with_score(sim_nr):
-    pca = PCA(n_components=3)
-    spikes, labels = ds.get_dataset_simulation(sim_nr, spike_length=79, align_to_peak=2, normalize_spike=False)
-    signal_pca = pca.fit_transform(spikes)
-    score_davies1 = sklearn.metrics.davies_bouldin_score(signal_pca, labels)
-    score_silhouette = sklearn.metrics.silhouette_score(signal_pca, labels)
-    score_calinski = sklearn.metrics.calinski_harabasz_score(signal_pca, labels)
-    scatter_plot.plot(title="GT with PCA Sim_%d" % sim_nr, X=signal_pca, labels=labels, marker='o')
-    plt.show()
-    print("Score Davies-Bouldin: ", score_davies1)
-    print("Score Calinsky-Harabasz: ", score_calinski)
-    print("Score Silhouette: ", score_silhouette)
-
-
-def plot_data_with_score(simulation, n_components, ord, ncyc):
-    spikes, labels = ds.get_dataset_simulation(simNr=simulation, align_to_peak=False)
-    # def slt(spikes, ord, ncyc, derivatives=True)
-    slt_features = slt.slt(spikes, ord, ncyc)
-
-    print(slt_features)
-    clusters = max(labels)
-    scaler = StandardScaler()
-    features = scaler.fit_transform(slt_features)
-    pca = PCA(n_components=n_components)
-    features_pca = pca.fit_transform(features)
-    scatter_plot.plot("Sim_%d (%d clusters)_%dD" % (simulation, clusters, n_components), features_pca, labels,
-                      marker='o')
-    plt.show()
-    score_davies = sklearn.metrics.davies_bouldin_score(slt_features, labels)
-    score_calinski = sklearn.metrics.calinski_harabasz_score(slt_features, labels)
-    score_silhouette = sklearn.metrics.silhouette_score(slt_features, labels)
-    print("Score Davies-Bouldin: ", score_davies)
-    print("Score Calinsky-Harabasz: ", score_calinski)
-    print("Score Silhouette: ", score_silhouette)
-
-
-def average_spike_per_cluster(simNr):
-    spikes, labels = ds.get_dataset_simulation(simNr=simNr, align_to_peak=False)
-
-    for unique_label in np.unique(labels):
-        selected_spikes = spikes[labels == unique_label]
-        average_spike = np.mean(selected_spikes, axis=0)
-        plt.plot(range(len(average_spike)), average_spike, color=LABEL_COLOR_MAP[unique_label],
-                 label='cluster {unique_label}'.format(unique_label=unique_label))
-
-    ax = plt.axes()
-    ax.set_facecolor("gray")
-    plt.title("Average spike for simulation " + str(simNr))
-    plt.legend(loc='best')
-    plt.show()
-
-
-def spikes_per_cluster(simNr, label):
+def average_spike(simNr, label):
     spikes, labels = ds.get_dataset_simulation(simNr=simNr, align_to_peak=False)
     selected_spikes = spikes[labels == label]
-    average_spike = np.mean(selected_spikes, axis=0)
-    return average_spike
+    return np.mean(selected_spikes, axis=0)
 
 
-def fourier_magnitude(spikes):
-    fft_signal = fft(spikes)
-    X = [x.real for x in fft_signal[:, 0:100]]
-    Y = [x.imag for x in fft_signal[:, 0:100]]
-    amplitude = np.sqrt(np.add(np.multiply(X, X), np.multiply(Y, Y)))
-    return amplitude
-
-
-def fourier_phase(spikes):
-    fft_signal = fft(spikes)
-    X = [x.real for x in fft_signal[:, 0:100]]
-    Y = [x.imag for x in fft_signal[:, 0:100]]
-    phase = np.arctan2(Y, X)
-    return phase
-
-
-def fourier_power(spikes):
-    fft_signal = fft(spikes)
-    X = [x.real for x in fft_signal[:, 0:100]]
-    Y = [x.imag for x in fft_signal[:, 0:100]]
-    magnitude = np.sqrt(np.add(np.multiply(X, X), np.multiply(Y, Y)))
-    power = magnitude * magnitude
-    return power
-
-
-def plot_spectrum(spikes, label, order_max, order_min, c, mode=0):
-    ampls = []
+def plot_spectrum(average_spike, label, ord, ncyc):
     fs = 1000  # sampling frequency
-    signal = spikes
-
     # frequencies of interest in Hz
     foi = np.linspace(1, 250)
     scales = scale_from_period(1 / foi)
 
     spec = superlet(
-        signal,
+        average_spike,
         samplerate=fs,
         scales=scales,
-        order_max=order_max,
-        order_min=order_min,
-        c_1=c,
+        order_max=ord,
+        order_min=ord,
+        c_1=ncyc,
         adaptive=True,
     )
 
-    # amplitude scalogram
-    if mode == 0:
-        ampls = np.abs(spec)
-    if mode == 1:
-        ampls = fourier_magnitude(spec)
-    if mode == 2:
-        ampls = fourier_magnitude(spec)
-    if mode == 3:
-        ampls = fourier_magnitude(spec)
+    result = np.abs(spec)
 
-    fig, (ax1, ax2) = ppl.subplots(2, 1,
+    fig, (ax1, ax2) = plt.subplots(2, 1,
                                    sharex=True,
                                    gridspec_kw={"height_ratios": [1, 3]},
                                    figsize=(6, 6))
 
-    ax1.plot(np.arange(signal.size) / fs, signal, c=LABEL_COLOR_MAP[label])
+    ax1.plot(np.arange(average_spike.size) / fs, average_spike, c=LABEL_COLOR_MAP[label])
     ax1.set_ylabel('average spike')
     ax1.set_facecolor("gray")
 
-    extent = [0, len(signal) / fs, foi[0], foi[-1]]
-    im = ax2.imshow(ampls, aspect="auto", extent=extent, origin='lower')
+    extent = [0, len(average_spike) / fs, foi[0], foi[-1]]
+    im = ax2.imshow(result, aspect="auto", extent=extent, origin='lower')
 
-    ppl.colorbar(im, ax=ax2, orientation='horizontal',
+    plt.colorbar(im, ax=ax2, orientation='horizontal',
                  shrink=0.7, pad=0.2, label='amplitude')
 
-    ax2.plot([0, len(signal) / fs], [20, 20], "--", c='0.5')
-    ax2.plot([0, len(signal) / fs], [40, 40], "--", c='0.5')
-    ax2.plot([0, len(signal) / fs], [60, 60], "--", c='0.5')
+    ax2.plot([0, len(average_spike) / fs], [20, 20], "--", c='0.5')
+    ax2.plot([0, len(average_spike) / fs], [40, 40], "--", c='0.5')
+    ax2.plot([0, len(average_spike) / fs], [60, 60], "--", c='0.5')
 
     ax2.set_xlabel("time (s)")
     ax2.set_ylabel("frequency (Hz)")
@@ -498,20 +402,12 @@ def plot_spectrum(spikes, label, order_max, order_min, c, mode=0):
     plt.show()
 
 
-def plot_spectrum_for_clusters(simNr, order_max, order_min, c):
+def spectrum_for_average_spike(simNr, ord, ncyc):
     _, labels = ds.get_dataset_simulation(simNr, align_to_peak=False)
     for label in np.unique(labels):
-        plot_spectrum(spikes_per_cluster(4, label), label, order_max, order_min, c)
+        plot_spectrum(average_spike(4, label), label, ord, ncyc)
+
 
 # ---------------------------- TESTING ------------------------------------------
+# spectrum_for_average_spike(54, ord=2, ncyc=1.5)
 
-# slt_1spike(spike, spike_pos, label, ord, ncyc, freq_start, freq_end)
-# spikes, labels = ds.get_dataset_simulation(simNr=4, align_to_peak=False)
-# print(len(np.unique(labels)))
-# print(len(spikes_per_cluster(8,0)))
-# slt.slt_1spike(spikes[0], 0, 0, 5, 1.5, 100, 500)
-
-# plot_spectrum_for_clusters(4, order_max=5, order_min=1, c=1.5)
-
-# plot_data_with_score(simulation=4, n_components=3, ord=2, ncyc=1.5)
-# plot_ground_truth_with_score(sim_nr=4)

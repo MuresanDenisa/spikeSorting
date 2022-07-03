@@ -1,5 +1,12 @@
-import tensorflow as tf
 from sklearn.preprocessing import MinMaxScaler
+from tensorflow.python.keras.utils.np_utils import to_categorical
+from tensorflow.python.keras.backend import sum
+from tensorflow.python.keras.backend import round
+from tensorflow.python.keras.backend import clip
+from tensorflow.python.keras.backend import epsilon
+from tensorflow.python.keras.layers import Input
+from tensorflow.python.keras.layers import Dense
+from tensorflow.python.keras.models import Model
 
 import simulations_dataset as ds
 import superlets as slt
@@ -107,7 +114,7 @@ def visualize_nn(model, description=False, figsize=(10, 8)):
 
 
 # ------------------------------------ PLOT RESULTS
-def plot_results(training, simNr, ord, ncyc, mode):
+def plot_results(training, simNr, ord, ncyc):
     # plot
     metrics = [k for k in training.history.keys() if ("loss" not in k) and ("val" not in k)]
     fig, ax = plt.subplots(nrows=2, ncols=1, sharex=True)
@@ -116,30 +123,28 @@ def plot_results(training, simNr, ord, ncyc, mode):
     # training
     ax[0].set(title="Training")
     ax11 = ax[0].twinx()
-    ax[0].plot(training.history['loss'], color='black')
+    ax[0].plot(training.history['loss'], color='black', label="loss")
     ax[0].set_xlabel('Epochs')
     ax[0].set_ylabel('Loss', color='black')
     for metric in metrics:
         ax11.plot(training.history[metric], label=metric)
         ax11.set_ylabel("Score", color='steelblue')
     ax11.legend()
+    ax[0].legend()
 
     # validation
     ax[1].set(title="Validation")
     ax22 = ax[1].twinx()
-    ax[1].plot(training.history['val_loss'], color='black')
+    ax[1].plot(training.history['val_loss'], color='black', label="loss")
     ax[1].set_xlabel('Epochs')
     ax[1].set_ylabel('Loss', color='black')
     for metric in metrics:
         ax22.plot(training.history['val_' + metric], label=metric)
         ax22.set_ylabel("Score", color="steelblue")
     ax22.legend()
+    ax[1].legend()
 
-    if mode:
-        plot_path = f'./figures/neuralNetworks/'
-    else:
-        plot_path = f'./figures/convolutionalNeuralNetworks/'
-
+    plot_path = f'./figures/neuralNetworks/'
     filename = "sim" + str(simNr) + "_superlet_ord" + str(ord) + "_ncyc" + str(ncyc)
 
     plt.savefig(plot_path + filename + ".png")
@@ -147,135 +152,104 @@ def plot_results(training, simNr, ord, ncyc, mode):
     return plt
 
 
-# ------------------------------------ define metrics
-def Recall(y_true, y_pred):
-    true_positives = tf.keras.backend.sum(tf.keras.backend.round(tf.keras.backend.clip(y_true * y_pred, 0, 1)))
-    possible_positives = tf.keras.backend.sum(tf.keras.backend.round(tf.keras.backend.clip(y_true, 0, 1)))
-    recall = true_positives / (possible_positives + tf.keras.backend.epsilon())
-    return recall
-
-
-def Precision(y_true, y_pred):
-    true_positives = tf.keras.backend.sum(tf.keras.backend.round(tf.keras.backend.clip(y_true * y_pred, 0, 1)))
-    predicted_positives = tf.keras.backend.sum(tf.keras.backend.round(tf.keras.backend.clip(y_pred, 0, 1)))
-    precision = true_positives / (predicted_positives + tf.keras.backend.epsilon())
-    return precision
-
-
+# ------------------------------------ define F1 score
 def F1(y_true, y_pred):
-    precision = Precision(y_true, y_pred)
-    recall = Recall(y_true, y_pred)
-    return 2 * ((precision * recall) / (precision + recall + tf.keras.backend.epsilon()))
+    true_positives = sum(round(clip(y_true * y_pred, 0, 1)))
+    predicted_positives = sum(round(clip(y_pred, 0, 1)))
+    precision = true_positives / (predicted_positives + epsilon())
+
+    possible_positives = sum(round(clip(y_true, 0, 1)))
+    recall = true_positives / (possible_positives + epsilon())
+
+    return 2 * ((precision * recall) / (precision + recall + epsilon()))
 
 
-def build_neural_network(n_features):
-    # layer input
-    inputs = tf.keras.layers.Input(name="input", shape=(n_features,))
+def build_neural_network(n_features, output_size):
+    inputLayer = Input(name="input", shape=(n_features,))
+    hiddenLayer = Dense(name="hidden", units=int(round((n_features + 1) / 2)),
+                        activation='relu')(inputLayer)
+    outputLayer = Dense(name="output", units=output_size, activation='sigmoid')(hiddenLayer)
 
-    # hidden layer 1
-    h1 = tf.keras.layers.Dense(name="h1", units=int(round((n_features + 1) / 2)), activation='elu')(inputs)
-
-    # hidden layer 2
-    h2 = tf.keras.layers.Dense(name="h2", units=int(round((n_features + 1) / 4)), activation='elu')(h1)
-
-    # layer output
-    outputs = tf.keras.layers.Dense(name="output", units=1, activation='softmax')(h2)
-    # outputs = tf.keras.layers.Dense(name="output", units=1, activation='softmax')(h2)
-    model = tf.keras.models.Model(inputs=inputs, outputs=outputs, name="DeepNN")
-    # model.summary()
-
-    return model
-
-
-def build_cnn(data_size, n_features):
-    model = tf.keras.models.Sequential()
-    model.add(tf.keras.layers.Conv1D(filters=64, kernel_size=3, activation='relu', input_shape=(data_size,n_features)))
-    model.add(tf.keras.layers.Conv1D(filters=64, kernel_size=3, activation='relu'))
-    model.add(tf.keras.layers.Dropout(0.5))
-    model.add(tf.keras.layers.MaxPooling1D(pool_size=2))
-    model.add(tf.keras.layers.Flatten())
-    model.add(tf.keras.layers.Dense(10, activation='relu'))
-    model.add(tf.keras.layers.Dense(1, activation='softmax'))
+    model = Model(inputs=inputLayer, outputs=outputLayer, name="neuralNetwork")
+    model.summary()
 
     return model
 
 
 def apply_neural_network(simNr, ord, ncyc):
     spikes, labels = ds.get_dataset_simulation(simNr=simNr, align_to_peak=False)
-    slt_features = slt.slt(spikes, ord, ncyc)
-    list(np.repeat(labels, 500))
 
-    # flatten the result from the superlets
+    slt_features = slt.slt(spikes, ord, ncyc)
+
+    # flatten the result from the superlet
     slt_features = np.asarray(slt_features)
 
     # scale data
     scaler = MinMaxScaler()
     scaled_slt_features = scaler.fit_transform(slt_features)
 
-    # split data intro training and validation data
-    x_train, x_valid, y_train, y_valid = train_test_split(scaled_slt_features, labels, test_size=0.33, shuffle=True)
+    # labels encoding
+    encoded_labels = to_categorical(labels.reshape(-1, 1).astype(int))
+    encoded_labels = np.array(encoded_labels)
 
-    model = build_neural_network(n_features=500)
-    # loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
+    visualize_labels_after_preprocessing(labels, encoded_labels)
 
-    model.compile(optimizer='adam', loss='categorical_crossentropy',
-                  metrics=['accuracy', F1])
-    # train/validation
-    training = model.fit(x=x_train, y=y_train, batch_size=32, epochs=100, shuffle=True, verbose=0,
-                         validation_data=(x_valid, y_valid))
+    # Separate the test data
+    features, features_test, encoded_labels, encoded_labels_test = train_test_split(slt_features,
+                                                                                    encoded_labels, test_size=0.15,
+                                                                                    shuffle=True)
 
-    # training = model.fit(x=slt_features, y=labels, batch_size=32, epochs=100, shuffle=True, verbose=0,
-    #                      validation_split=0.33)
+    # Split the remaining data to train and validation
+    features_train, features_validation, labels_train, labels_validation = train_test_split(features,
+                                                                                            encoded_labels,
+                                                                                            test_size=0.15,
+                                                                                            shuffle=True)
+    visualize_data_after_split(slt_features, labels, features_test, encoded_labels_test,
+                               features_train, labels_train, features_validation, labels_validation)
 
-    # model.evaluate(X, y, verbose=0)
-
-    plt = plot_results(training, simNr, ord, ncyc, mode=1)
-    plt.show()
-
-
-def apply_cnn(simNr, ord, ncyc):
-    spikes, labels = ds.get_dataset_simulation(simNr=simNr, align_to_peak=False)
-    slt_features = slt.slt(spikes, ord, ncyc)
-
-    slt_features = np.asarray(slt_features)
-    x_train, x_valid, y_train, y_valid = train_test_split(slt_features, labels, test_size=0.33, shuffle=True)
-    x_train = np.reshape(x_train, [1, len(x_train), 500])
-    x_valid = np.reshape(x_valid, [1, len(x_train), 500])
-
-    model = build_cnn(len(x_train), n_features=500)
+    model = build_neural_network(n_features=500, output_size=encoded_labels.shape[-1])
 
     model.compile(optimizer='adam',
-                  loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
-                  metrics=['accuracy'])
+                  loss='categorical_crossentropy',
+                  metrics=['accuracy', F1])
 
-    history = model.fit(x_train, y_train, epochs=10,
-                        validation_data=(x_valid, y_valid))
+    # train/validation
+    training = model.fit(x=features_train, y=labels_train, batch_size=32, epochs=100, shuffle=True, verbose=1,
+                         validation_data=(features_validation, labels_validation))
 
-    # test_loss, test_acc = model.evaluate(test_images, test_labels, verbose=2)
+    result = model.evaluate(features_test, encoded_labels_test, verbose=1)
+    print("Test loss function: ", result[0])
+    print("Test accuracy: ", result[1])
+    print("Test F1 score: ", result[2])
 
-    plt = plot_results(history, simNr, ord, ncyc, mode=0)
+    plt = plot_results(training, simNr, ord, ncyc)
     plt.show()
 
 
-def visualize_data(simNr, ord, ncyc):
-    spikes, labels = ds.get_dataset_simulation(simNr=simNr, align_to_peak=False)
-    slt_features = slt.slt(spikes, ord, ncyc)
-    slt_features = np.asarray(slt_features)
-    # print(slt_features)
-    print('no of slt features:' + str(len(slt_features)))
-    print('length of each feature: ' + str(len(slt_features[0])))
-    print('no of labels:' + str(len(labels)))
-    slt_features = np.asarray(slt_features)
-    x_train, x_valid, y_train, y_valid = train_test_split(slt_features, labels, test_size=0.33, shuffle=True)
-    print('no of slt features in x_train:' + str(len(x_train)))
-    print('length of each feature in x_train: ' + str(len(x_train[0])))
-    print('no of labels in y_train:' + str(len(y_train)))
-    print('no of slt features in x_valid:' + str(len(x_valid)))
-    print('length of each feature in x_valid: ' + str(len(x_valid[0])))
-    print('no of labels in y_valid:' + str(len(y_valid)))
+def visualize_labels_after_preprocessing(labels, encoded_labels):
+    print('Labels shape before preprocessing: ' + str(labels.shape))
+    print('Unique labels: ' + str(np.unique(labels)))
+    print('First three labels shape: ' + str(labels[0:3]))
+    print('---------------------------------------------------------------')
+    print('Labels shape after preprocessing: ' + str(encoded_labels.shape))
+    print('Unique labels: ' + str(np.unique(encoded_labels)))
+    print('First three labels shape: ' + str(encoded_labels[0:3]))
 
 
-apply_neural_network(simNr=8, ord=2, ncyc=2)
-# apply_cnn(simNr=8, ord=2, ncyc=2)
-# visualize_nn(build_neural_network(5))
-# visualize_data(8,2,2)
+def visualize_data_after_split(slt_features, labels, features_test, labels_test,
+                               features_train, labels_train, features_validation, labels_validation):
+    print('No of slt features:' + str(len(slt_features)))
+    print('Length of each feature: ' + str(len(slt_features[0])))
+    print('No of labels:' + str(len(labels)))
+    print('---------------------------------------------------------------')
+    print('No of slt features for training:' + str(len(features_train)))
+    print('No of labels for training:' + str(len(labels_train)))
+    print('---------------------------------------------------------------')
+    print('No of slt features for validation:' + str(len(features_validation)))
+    print('No of labels for validation:' + str(len(labels_validation)))
+    print('---------------------------------------------------------------')
+    print('No of slt features for testing:' + str(len(features_test)))
+    print('No of labels for testing:' + str(len(labels_test)))
+
+
+# apply_neural_network(simNr=8, ord=2, ncyc=1.5)
