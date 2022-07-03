@@ -351,13 +351,16 @@ def gen_superlet_testdata(freqs=None, cycles=11, fs=1000, eps=0):
 
     return signal
 
-
+# functie care genereaza spike-ul mediu per cluster (ales prin label)
 def average_spike(simNr, label):
     spikes, labels = ds.get_dataset_simulation(simNr=simNr, align_to_peak=False)
     selected_spikes = spikes[labels == label]
     return np.mean(selected_spikes, axis=0)
 
 
+# functie pentru generarea spectrului timp-frecventa in urma aplicarii
+# transfromatei Superlet pe spike-ul mediu din fiecare cluster
+# proiectata impreuna cu Ciure Raluca
 def plot_spectrum(average_spike, label, ord, ncyc):
     fs = 1000  # sampling frequency
     # frequencies of interest in Hz
