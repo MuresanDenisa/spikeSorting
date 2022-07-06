@@ -73,7 +73,7 @@ def build_neural_network(n_features, output_size):
     outputLayer = Dense(name="output", units=output_size, activation='sigmoid')(hiddenLayer)
 
     model = Model(inputs=inputLayer, outputs=outputLayer, name="neuralNetwork")
-    model.summary()
+    # model.summary()
 
     return model
 
@@ -81,10 +81,10 @@ def build_neural_network(n_features, output_size):
 # functie care importa setul de date, aplica Superlet si imparte rezultatele
 # in training set, validation set si testing set
 # antreneaza reteaua neuronala si o testeaza pe testing set
-def apply_neural_network(simNr, ord, ncyc):
-    spikes, labels = ds.get_dataset_simulation(simNr=simNr, align_to_peak=False)
-
-    slt_features = slt.slt(spikes, ord, ncyc)
+def apply_neural_network(slt_features, labels, simNr, ord, ncyc):
+    # spikes, labels = ds.get_dataset_simulation(simNr=simNr, align_to_peak=False)
+    #
+    # slt_features = slt.slt(spikes, ord, ncyc)
 
     # flatten the result from the superlet
     slt_features = np.asarray(slt_features)
@@ -93,7 +93,7 @@ def apply_neural_network(simNr, ord, ncyc):
     encoded_labels = to_categorical(labels.reshape(-1, 1).astype(int))
     encoded_labels = np.array(encoded_labels)
 
-    visualize_labels_after_preprocessing(labels, encoded_labels)
+    # visualize_labels_after_preprocessing(labels, encoded_labels)
 
     # Separate the test data
     features, features_test, encoded_labels, encoded_labels_test = train_test_split(slt_features,

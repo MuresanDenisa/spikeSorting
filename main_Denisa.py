@@ -199,13 +199,14 @@ def pipeline_superlet(simNr, ord, ncyc, no_of_components):
     compute_metrics_scores(slt_features, labels)
 
     plot_path = f'./figures/' + str(simNr) + '/'
-    filename = 'sim_' + str(simNr) + '_ord' + str(ord) + '_ncyc' + str(ncyc) + 'in'+ str(no_of_components) + 'D'
+    filename = 'sim_' + str(simNr) + '_ord' + str(ord) + '_ncyc' + str(ncyc) + 'in'\
+               + str(no_of_components) + 'D'
 
     scatter_plot.plot(filename, features_after_pca, labels, marker='o')
     plt.savefig(plot_path + filename + ".png")
     plt.show()
 
-    neuralNetwork.apply_neural_network(simNr, ord, ncyc)
+    neuralNetwork.apply_neural_network(slt_features, labels, simNr, ord, ncyc)
 
 
 # functie pentru aplicarea pipeline-ului pentru transformata FASLT
